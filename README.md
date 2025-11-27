@@ -1,11 +1,65 @@
 # ClaRelations CRM
 
-A modern, AI-ready Customer Relationship Management (CRM) system built with React, TypeScript, and Supabase. ClaRelations helps sales teams manage contacts, track deals, and streamline their sales pipeline.
+A modern, AI-ready Customer Relationship Management (CRM) system built with React, TypeScript, and Supabase. ClaRelations helps sales teams manage contacts, track deals, and streamline their sales pipeline with Gmail integration and AI-powered analysis.
 
 ![ClaRelations CRM](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![React](https://img.shields.io/badge/react-18.3-blue)
 ![TypeScript](https://img.shields.io/badge/typescript-5.5-blue)
 ![Supabase](https://img.shields.io/badge/supabase-enabled-green)
+
+## 📁 Project Structure
+
+```
+clarelations/
+├── backend/          # Node.js/Express API server
+│   ├── api/         # API endpoints
+│   ├── actions/     # Database actions
+│   ├── services/    # Business logic services
+│   ├── migrations/  # Database migrations
+│   ├── types/       # TypeScript type definitions
+│   └── supabase/    # Supabase configuration
+└── frontend/        # React frontend application
+    ├── src/         # Source code
+    ├── components/  # React components
+    ├── contexts/    # React contexts
+    ├── lib/         # Utility libraries
+    └── public/      # Static assets
+```
+
+## 🛠️ Development Setup
+
+### Prerequisites
+- Node.js 18+
+- npm or yarn
+- Supabase account
+- OpenAI API key
+
+### Installation
+```bash
+# Install all dependencies
+npm run install:all
+
+# Or install individually
+npm install
+cd backend && npm install
+cd frontend && npm install
+```
+
+### Development Commands
+
+```bash
+# Run both frontend and backend
+npm run dev
+
+# Run backend only
+npm run backend:dev
+
+# Run frontend only
+npm run frontend:dev
+
+# Build frontend for production
+npm run build
+```
 
 ## 🚀 Features
 
