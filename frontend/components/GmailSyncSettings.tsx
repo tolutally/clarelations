@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Loader2, Mail, CheckCircle2, Clock, AlertCircle, RefreshCw, Settings, Info, XCircle, TrendingUp } from 'lucide-react';
+import { Loader2, Mail, CheckCircle2, Clock, AlertCircle, RefreshCw, Settings, Info, XCircle, TrendingUp, UserPlus, LogOut, Users } from 'lucide-react';
 import PendingDeals from './PendingDeals';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -40,12 +40,22 @@ interface GmailStatus {
   }>;
 }
 
+interface GmailAccount {
+  id: string;
+  email: string;
+  connectedAt: string;
+  isPrimary: boolean;
+  lastSync: string | null;
+}
+
 export function GmailSyncSettings() {
   const { session } = useAuth();
   const [status, setStatus] = useState<GmailStatus | null>(null);
+  const [accounts, setAccounts] = useState<GmailAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [syncResults, setSyncResults] = useState<any>(null);
   const [pendingDeals, setPendingDeals] = useState<any[]>([]);
   const [pendingDealsLoading, setPendingDealsLoading] = useState(false);
@@ -81,6 +91,19 @@ export function GmailSyncSettings() {
     }
   };
 
+  const fetchAccounts = async () => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/gmail/accounts`);
+      if (response.ok) {
+        const data = await response.json();
+        setAccounts(data.accounts || []);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching Gmail accounts:', error);
+      setAccounts([]);
+    }
+  };
+
   const handleConnect = async () => {
     setConnecting(true);
     try {
@@ -97,6 +120,50 @@ export function GmailSyncSettings() {
     } catch (error) {
       console.error('❌ Error initiating Gmail connection:', error);
       setConnecting(false);
+    }
+  };
+
+  const handleConnectAdditional = async () => {
+    setConnecting(true);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/gmail/connect-additional`);
+      const data = await response.json();
+      
+      if (data.authUrl) {
+        // Redirect to Google OAuth URL for additional account
+        window.location.href = data.authUrl;
+      } else {
+        console.error('❌ No auth URL received for additional account:', data);
+        setConnecting(false);
+      }
+    } catch (error) {
+      console.error('❌ Error connecting additional Gmail account:', error);
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!confirm('Are you sure you want to disconnect your Gmail account? This will stop all email syncing.')) {
+      return;
+    }
+
+    setDisconnecting(true);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/gmail/disconnect`, {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        await fetchStatus();
+        await fetchAccounts();
+        console.log('✅ Gmail account disconnected successfully');
+      } else {
+        console.error('❌ Failed to disconnect Gmail account');
+      }
+    } catch (error) {
+      console.error('❌ Error disconnecting Gmail account:', error);
+    } finally {
+      setDisconnecting(false);
     }
   };
 
@@ -260,6 +327,7 @@ export function GmailSyncSettings() {
   useEffect(() => {
     if (session?.access_token) {
       fetchStatus();
+      fetchAccounts();
       
       // Check for OAuth callback parameters
       const urlParams = new URLSearchParams(window.location.search);
@@ -270,6 +338,7 @@ export function GmailSyncSettings() {
         window.history.replaceState({}, document.title, window.location.pathname);
         setTimeout(() => {
           fetchStatus();
+          fetchAccounts();
         }, 1000);
       }
     }
@@ -315,7 +384,7 @@ export function GmailSyncSettings() {
               {status.isConnected ? (
                 <>
                   <CheckCircle2 className="w-4 h-4 mr-1" />
-                  Connected
+                  Connected ({accounts.length} account{accounts.length !== 1 ? 's' : ''})
                 </>
               ) : (
                 <>
@@ -324,43 +393,85 @@ export function GmailSyncSettings() {
                 </>
               )}
             </Badge>
-            {status.isConnected ? (
-              <Button 
-                onClick={handleSync} 
-                disabled={syncing}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {syncing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Syncing...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Sync Now
-                  </>
-                )}
-              </Button>
-            ) : (
-              <Button 
-                onClick={handleConnect} 
-                disabled={connecting}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {connecting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <Mail className="w-4 h-4 mr-2" />
-                    Connect Gmail
-                  </>
-                )}
-              </Button>
-            )}
+            <div className="flex gap-2">
+              {status.isConnected ? (
+                <>
+                  <Button 
+                    onClick={handleSync} 
+                    disabled={syncing}
+                    className="bg-blue-600 hover:bg-blue-700"
+                    size="sm"
+                  >
+                    {syncing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Syncing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Sync Now
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    onClick={handleConnectAdditional}
+                    disabled={connecting || accounts.length >= 5}
+                    variant="outline"
+                    size="sm"
+                  >
+                    {connecting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Add Account
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    onClick={handleDisconnect}
+                    disabled={disconnecting}
+                    variant="outline"
+                    size="sm"
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    {disconnecting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Disconnecting...
+                      </>
+                    ) : (
+                      <>
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Disconnect
+                      </>
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <Button 
+                  onClick={handleConnect} 
+                  disabled={connecting}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  {connecting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="w-4 h-4 mr-2" />
+                      Connect Gmail
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -401,6 +512,95 @@ export function GmailSyncSettings() {
       {/* Connected state */}
       {status && status.isConnected && (
         <div className="space-y-6">
+          {/* Connected Accounts */}
+          {accounts.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-blue-600" />
+                  Connected Accounts ({accounts.length})
+                </CardTitle>
+                <p className="text-sm text-gray-600">
+                  Gmail accounts connected for email syncing
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {accounts.map((account) => (
+                    <div key={account.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                          <Mail className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-gray-900">{account.email}</span>
+                            {account.isPrimary && (
+                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                Primary
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            Connected {new Date(account.connectedAt).toLocaleDateString()}
+                            {account.lastSync && (
+                              <span> • Last sync: {new Date(account.lastSync).toLocaleString()}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                          Active
+                        </Badge>
+                        {!account.isPrimary && (
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => {
+                              // TODO: Implement individual account disconnect
+                              console.log('Disconnect account:', account.id);
+                            }}
+                          >
+                            <LogOut className="w-3 h-3 mr-1" />
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {accounts.length < 5 && (
+                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <UserPlus className="w-5 h-5 text-blue-600" />
+                        <div>
+                          <span className="font-medium text-blue-900">Add another Gmail account</span>
+                          <p className="text-sm text-blue-700">Sync emails from multiple Gmail accounts</p>
+                        </div>
+                      </div>
+                      <Button 
+                        onClick={handleConnectAdditional}
+                        disabled={connecting}
+                        size="sm"
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        {connecting ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          'Add Account'
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Statistics Overview */}
           <Card>
             <CardHeader>
