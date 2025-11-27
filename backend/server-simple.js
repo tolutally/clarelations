@@ -173,6 +173,130 @@ app.post('/api/gmail/sync', async (req, res) => {
   }
 });
 
+/**
+ * Get pending deals for review
+ * GET /api/gmail/pending-deals
+ */
+app.get('/api/gmail/pending-deals', (req, res) => {
+  // Return empty array for now - this would normally fetch from database
+  res.json({
+    success: true,
+    pendingDeals: []
+  });
+});
+
+/**
+ * Approve a pending deal
+ * POST /api/gmail/approve-deal
+ */
+app.post('/api/gmail/approve-deal', (req, res) => {
+  const { pendingDeal } = req.body;
+  
+  // Simulate deal approval
+  res.json({
+    success: true,
+    message: 'Deal approved and created successfully',
+    dealId: 'new-deal-' + Date.now()
+  });
+});
+
+/**
+ * Reject a pending deal
+ * POST /api/gmail/reject-deal
+ */
+app.post('/api/gmail/reject-deal', (req, res) => {
+  const { pendingDealId } = req.body;
+  
+  // Simulate deal rejection
+  res.json({
+    success: true,
+    message: 'Deal rejected successfully'
+  });
+});
+
+/**
+ * Disconnect Gmail account
+ * POST /api/gmail/disconnect
+ */
+app.post('/api/gmail/disconnect', (req, res) => {
+  // Reset connection state
+  gmailConnection = {
+    isConnected: false,
+    connectedAt: null,
+    lastSync: null,
+  };
+  
+  console.log('✅ Gmail account disconnected');
+  res.json({
+    success: true,
+    message: 'Gmail account disconnected successfully'
+  });
+});
+
+/**
+ * Get connected Gmail accounts
+ * GET /api/gmail/accounts
+ */
+app.get('/api/gmail/accounts', (req, res) => {
+  // For now, return single account or empty array
+  const accounts = gmailConnection.isConnected ? [{
+    id: 'primary',
+    email: 'user@gmail.com', // This would come from actual Google profile
+    connectedAt: gmailConnection.connectedAt,
+    isPrimary: true,
+    lastSync: gmailConnection.lastSync
+  }] : [];
+  
+  res.json({
+    success: true,
+    accounts,
+    canAddMore: accounts.length < 5 // Allow up to 5 accounts
+  });
+});
+
+/**
+ * Connect additional Gmail account
+ * GET /api/gmail/connect-additional
+ */
+app.get('/api/gmail/connect-additional', async (req, res) => {
+  if (!CLIENT_ID || !CLIENT_SECRET) {
+    return res.status(500).json({ 
+      error: 'Gmail OAuth credentials not configured',
+      message: 'Please set GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET environment variables'
+    });
+  }
+
+  try {
+    const oauth2Client = new google.auth.OAuth2(
+      CLIENT_ID,
+      CLIENT_SECRET,
+      REDIRECT_URI
+    );
+
+    const scopes = [
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.modify',
+      'https://www.googleapis.com/auth/userinfo.email'
+    ];
+
+    // Add additional account parameter to distinguish from primary connection
+    const authUrl = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: scopes,
+      prompt: 'consent',
+      state: 'additional_account' // This helps identify additional account flow
+    });
+
+    res.json({ authUrl });
+  } catch (error) {
+    console.error('Error generating OAuth URL for additional account:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate OAuth URL',
+      message: error.message 
+    });
+  }
+});
+
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
