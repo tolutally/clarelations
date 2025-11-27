@@ -25,6 +25,67 @@ let gmailConnection = {
   userProfile: null
 };
 
+// Store pending deals for review
+let pendingDeals = [];
+
+// Add some sample pending deals for testing
+function addSamplePendingDeals() {
+  if (pendingDeals.length === 0) {
+    pendingDeals.push({
+      id: `pending_${Date.now()}_sample1`,
+      messageId: 'sample_msg_1',
+      subject: 'Partnership Opportunity - SaaS Integration',
+      contactName: 'Sarah Wilson',
+      contactEmail: 'sarah.wilson@techcorp.com',
+      emailBody: 'Hi, I would like to explore a potential partnership for integrating our SaaS platform with your CRM solution...',
+      detectedAt: new Date().toISOString(),
+      confidence: 'high',
+      suggestedName: 'TechCorp SaaS Integration Partnership',
+      suggestedUseCase: 'Software/Technology',
+      suggestedDescription: 'Deal opportunity detected from email: "Partnership Opportunity - SaaS Integration"\n\nContact: Sarah Wilson (sarah.wilson@techcorp.com)\n\nEmail preview: Hi, I would like to explore a potential partnership for integrating our SaaS platform with your CRM solution...'
+    });
+
+    pendingDeals.push({
+      id: `pending_${Date.now()}_sample2`,
+      messageId: 'sample_msg_2', 
+      subject: 'Consulting Services Inquiry',
+      contactName: 'Michael Chen',
+      contactEmail: 'mchen@growthventures.io',
+      emailBody: 'We are looking for consulting services to help scale our operations. Could we schedule a meeting to discuss?',
+      detectedAt: new Date().toISOString(),
+      confidence: 'medium',
+      suggestedName: 'Growth Ventures Consulting Project',
+      suggestedUseCase: 'Professional Services',
+      suggestedDescription: 'Deal opportunity detected from email: "Consulting Services Inquiry"\n\nContact: Michael Chen (mchen@growthventures.io)\n\nEmail preview: We are looking for consulting services to help scale our operations...'
+    });
+    
+    console.log('📊 Added sample pending deals for testing');
+  }
+}
+
+// Helper function to extract use case from email content
+function extractUseCase(subject, body) {
+  const text = (subject + ' ' + body).toLowerCase();
+  
+  if (text.includes('software') || text.includes('saas') || text.includes('app') || text.includes('platform')) {
+    return 'Software/Technology';
+  }
+  if (text.includes('consulting') || text.includes('advisory') || text.includes('strategy')) {
+    return 'Professional Services';
+  }
+  if (text.includes('marketing') || text.includes('advertising') || text.includes('campaign')) {
+    return 'Marketing/Advertising';
+  }
+  if (text.includes('training') || text.includes('education') || text.includes('course')) {
+    return 'Training/Education';
+  }
+  if (text.includes('integration') || text.includes('api') || text.includes('connect')) {
+    return 'Integration/API';
+  }
+  
+  return 'Business Development';
+}
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
@@ -145,7 +206,7 @@ app.get('/api/gmail/status', (req, res) => {
     isConnected: gmailConnection.isConnected,
     connectedAt: gmailConnection.connectedAt,
     lastSync: gmailConnection.lastSync,
-    pendingReviewCount: 0,
+    pendingReviewCount: pendingDeals.length,
     statistics: {
       totalSyncs: gmailConnection.lastSync ? 1 : 0,
       totalDealsCreated: 0,
@@ -227,14 +288,44 @@ app.post('/api/gmail/sync', async (req, res) => {
         );
         
         if (isBusinessEmail) {
-          // Simulate deal/contact creation
-          if (Math.random() > 0.7) {
-            dealsCreated++;
-          } else if (Math.random() > 0.5) {
-            contactsCreated++;
-          } else {
-            pendingReview++;
+          // Extract email content for deal creation
+          let emailBody = '';
+          if (messageData.data.payload?.body?.data) {
+            emailBody = Buffer.from(messageData.data.payload.body.data, 'base64').toString();
+          } else if (messageData.data.payload?.parts) {
+            // Handle multipart messages
+            for (const part of messageData.data.payload.parts) {
+              if (part.mimeType === 'text/plain' && part.body?.data) {
+                emailBody = Buffer.from(part.body.data, 'base64').toString();
+                break;
+              }
+            }
           }
+          
+          // Extract contact info from email
+          const fromMatch = from.match(/(.+)<(.+)>/) || [null, from, from];
+          const contactName = fromMatch[1] ? fromMatch[1].trim().replace(/"/g, '') : '';
+          const contactEmail = fromMatch[2] || from;
+          
+          // Create pending deal based on email content
+          const pendingDeal = {
+            id: `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            messageId: message.id,
+            subject: subject,
+            contactName: contactName,
+            contactEmail: contactEmail,
+            emailBody: emailBody.substring(0, 500), // Truncate for storage
+            detectedAt: new Date().toISOString(),
+            confidence: Math.random() > 0.5 ? 'high' : 'medium',
+            suggestedName: subject.replace(/^(Re:|Fwd?:)\s*/i, '').trim() || 'New Deal Opportunity',
+            suggestedUseCase: extractUseCase(subject, emailBody),
+            suggestedDescription: `Deal opportunity detected from email: "${subject}"\n\nContact: ${contactName} (${contactEmail})\n\nEmail preview: ${emailBody.substring(0, 200)}...`
+          };
+          
+          pendingDeals.push(pendingDeal);
+          pendingReview++;
+          
+          console.log(`📧 Created pending deal: ${pendingDeal.suggestedName}`);
         }
         
         emailsProcessed++;
@@ -278,10 +369,25 @@ app.post('/api/gmail/sync', async (req, res) => {
  * GET /api/gmail/pending-deals
  */
 app.get('/api/gmail/pending-deals', (req, res) => {
-  // Return empty array for now - this would normally fetch from database
+  // Add sample deals if none exist (for testing)
+  addSamplePendingDeals();
+  
+  // Return actual pending deals from storage
   res.json({
     success: true,
-    pendingDeals: []
+    pendingDeals: pendingDeals.map(deal => ({
+      ...deal,
+      // Format for frontend display
+      name: deal.suggestedName,
+      contact: {
+        name: deal.contactName,
+        email: deal.contactEmail
+      },
+      description: deal.suggestedDescription,
+      useCase: deal.suggestedUseCase,
+      confidence: deal.confidence,
+      detectedAt: deal.detectedAt
+    }))
   });
 });
 
@@ -289,15 +395,69 @@ app.get('/api/gmail/pending-deals', (req, res) => {
  * Approve a pending deal
  * POST /api/gmail/approve-deal
  */
-app.post('/api/gmail/approve-deal', (req, res) => {
+app.post('/api/gmail/approve-deal', async (req, res) => {
   const { pendingDeal } = req.body;
   
-  // Simulate deal approval
-  res.json({
-    success: true,
-    message: 'Deal approved and created successfully',
-    dealId: 'new-deal-' + Date.now()
-  });
+  try {
+    // Find the pending deal
+    const dealIndex = pendingDeals.findIndex(d => d.id === pendingDeal.id);
+    if (dealIndex === -1) {
+      return res.status(404).json({ error: 'Pending deal not found' });
+    }
+    
+    const deal = pendingDeals[dealIndex];
+    
+    // Create contact first if needed
+    let contactId = null;
+    if (deal.contactName && deal.contactEmail) {
+      // For demo, we'll create a simplified contact creation
+      // In production, you'd want to check if contact already exists
+      const contactData = {
+        first_name: deal.contactName.split(' ')[0] || '',
+        last_name: deal.contactName.split(' ').slice(1).join(' ') || '',
+        email: deal.contactEmail,
+        company: deal.contactEmail.split('@')[1] || '',
+        source: 'Gmail Integration'
+      };
+      
+      console.log('Creating contact for approved deal:', contactData);
+      // contactId = await createContact(contactData); // Would implement this
+    }
+    
+    // Create deal in 'Cold' stage
+    const dealData = {
+      contact_id: contactId,
+      name: deal.suggestedName,
+      use_case: deal.suggestedUseCase,
+      stage: 'Cold', // Always start in Cold stage
+      signal: 'Email Detected',
+      description: deal.suggestedDescription,
+      attachments: null
+    };
+    
+    // For demo purposes, simulate deal creation
+    // In production, you'd call your actual createDeal function
+    const newDealId = `deal_${Date.now()}`;
+    
+    console.log('✅ Created deal from email:', dealData);
+    
+    // Remove from pending deals
+    pendingDeals.splice(dealIndex, 1);
+    
+    res.json({
+      success: true,
+      message: 'Deal approved and created successfully in Cold stage',
+      dealId: newDealId,
+      dealData: dealData
+    });
+  } catch (error) {
+    console.error('Error approving deal:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to approve deal',
+      message: error.message 
+    });
+  }
 });
 
 /**
@@ -307,11 +467,29 @@ app.post('/api/gmail/approve-deal', (req, res) => {
 app.post('/api/gmail/reject-deal', (req, res) => {
   const { pendingDealId } = req.body;
   
-  // Simulate deal rejection
-  res.json({
-    success: true,
-    message: 'Deal rejected successfully'
-  });
+  try {
+    // Find and remove the pending deal
+    const dealIndex = pendingDeals.findIndex(d => d.id === pendingDealId);
+    if (dealIndex === -1) {
+      return res.status(404).json({ error: 'Pending deal not found' });
+    }
+    
+    const rejectedDeal = pendingDeals.splice(dealIndex, 1)[0];
+    
+    console.log('❌ Rejected pending deal:', rejectedDeal.suggestedName);
+    
+    res.json({
+      success: true,
+      message: 'Deal rejected successfully'
+    });
+  } catch (error) {
+    console.error('Error rejecting deal:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to reject deal',
+      message: error.message 
+    });
+  }
 });
 
 /**
