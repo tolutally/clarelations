@@ -81,9 +81,23 @@ export function GmailSyncSettings() {
     }
   };
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     setConnecting(true);
-    window.location.href = `${import.meta.env.VITE_API_URL}/api/gmail/connect`;
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/gmail/connect`);
+      const data = await response.json();
+      
+      if (data.authUrl) {
+        // Redirect to Google OAuth URL
+        window.location.href = data.authUrl;
+      } else {
+        console.error('❌ No auth URL received:', data);
+        setConnecting(false);
+      }
+    } catch (error) {
+      console.error('❌ Error initiating Gmail connection:', error);
+      setConnecting(false);
+    }
   };
 
   const handleSync = async () => {

@@ -67,7 +67,7 @@ async function loadDeals() {
     .from('deals')
     .select(`
       *,
-      contacts (
+      contacts!contact_id (
         first_name,
         last_name,
         email,

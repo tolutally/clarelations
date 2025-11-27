@@ -29,7 +29,7 @@ async function loadDealById({ dealId }: { dealId: string }) {
     .from('deals')
     .select(`
       *,
-      contacts:contact_id (
+      contacts!contact_id (
         first_name,
         last_name,
         email,
