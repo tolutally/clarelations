@@ -1,0 +1,14 @@
+# Railway configuration for Clarelations Frontend
+# Frontend service configuration
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "npm run railway:frontend"
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+
+[environments.production.variables]
+NODE_ENV = "production"
