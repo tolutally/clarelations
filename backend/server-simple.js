@@ -226,6 +226,38 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'Backend API is working!' });
 });
 
+// Test OpenAI integration endpoint
+app.post('/api/test-openai', async (req, res) => {
+  const { subject, body, fromEmail } = req.body;
+  
+  if (!subject || !body || !fromEmail) {
+    return res.status(400).json({ 
+      error: 'Missing required fields: subject, body, fromEmail' 
+    });
+  }
+  
+  try {
+    console.log('🤖 Testing OpenAI with:', { subject, fromEmail });
+    
+    const analysis = await analyzeEmailWithAI(subject, body, fromEmail);
+    
+    res.json({
+      success: true,
+      analysis,
+      openaiWorking: true,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ OpenAI test error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'OpenAI integration failed',
+      message: error.message,
+      openaiWorking: false
+    });
+  }
+});
+
 // Gmail API Routes
 
 /**
@@ -389,7 +421,7 @@ app.post('/api/gmail/sync', async (req, res) => {
     console.log(`📧 Found ${messages.length} recent messages to process`);
     
     // Process each message
-    for (const message of messages.slice(0, 10)) { // Process first 10 for demo
+    for (const message of messages.slice(0, 50)) { // Process first 50 emails
       try {
         const messageData = await gmail.users.messages.get({
           userId: 'me',
