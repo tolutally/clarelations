@@ -102,39 +102,100 @@ function extractUseCase(subject, body) {
 // AI-powered email analysis using OpenAI
 async function analyzeEmailWithAI(subject, body, fromEmail) {
   try {
-    const prompt = `Analyze this business email and extract deal information:
+    const prompt = `
+You are an AI assistant that classifies incoming emails for CRM deal creation.
+Carefully read the email and decide if it represents a *real* business opportunity, and if so, what kind.
 
+Email:
 Subject: ${subject}
 From: ${fromEmail}
-Body: ${body.substring(0, 1000)}
+Content:
+"""
+${body.substring(0, 1000)}
+"""
 
-Please provide:
-1. Is this a potential business deal/opportunity? (yes/no)
-2. Confidence level (high/medium/low)
-3. Deal name (max 50 chars)
-4. Use case category
-5. Brief description (max 200 chars)
-6. Contact company name
+Your job:
 
-Respond in JSON format:
+1. First decide if this is a **legitimate business opportunity**:
+   - Treat as a business opportunity **only if** the sender is:
+     - expressing interest in buying, trialing, or evaluating a product/service,
+     - requesting a demo or intro call to learn about the product/service,
+     - discussing becoming a client, customer, or user,
+     - exploring a partnership, integration, or collaboration that could lead to revenue,
+     - discussing implementation/onboarding for a new or expanding client.
+   - Do **NOT** mark as an opportunity if it is primarily:
+     - spam or cold outbound marketing TO us,
+     - newsletters, announcements, promotions, general marketing blasts,
+     - invoices, receipts, payment confirmations, salary/HR/payroll info,
+     - billing/accounting only (no new revenue opportunity),
+     - support tickets or bug reports only (no upsell/expansion intent),
+     - job applications or recruiting emails,
+     - charity/donation/fundraising requests,
+     - purely personal or internal team communication.
+
+2. Classify the **interaction type** as one of:
+   - "demo_call" – they want a demo, product walkthrough, or intro call to learn about what we offer.
+   - "intro_call" – initial conversation to understand fit, exploratory chat without explicit demo language.
+   - "partnership_discussion" – exploring partnership, collaboration, integration, reseller, co-marketing, etc.
+   - "client_acquisition" – they want to start using/buying the product/service, request pricing, proposal, or contract.
+   - "onboarding" – new or recently closed customer discussing setup, training, implementation, or rollout.
+   - "renewal_or_expansion" – existing customer discussing renewal, upgrade, expansion, adding seats or new scope.
+   - "support_only" – support/issue/bug/technical question with **no sign** of expansion or new revenue.
+   - "none" – clearly not a business opportunity (e.g. newsletter, billing, spam, personal).
+
+3. Identify the **business use case** in plain language:
+   - A short phrase that describes what they're trying to achieve (e.g. "AI interview analysis", "sales coaching", "HR onboarding automation", "CRM implementation support").
+
+4. Suggest a professional **deal name**:
+   - Good format: "<Company or Person> – <Short intent or use case>".
+   - If no company, use the person's name or a generic like "Inbound – <use case>".
+
+5. Provide a **confidence level** in your classification:
+   - "high" – very clear this *is* or *is not* an opportunity and the type is obvious.
+   - "medium" – some signals, but wording is ambiguous or missing context.
+   - "low" – unclear intent, very indirect language, or conflicting signals.
+
+6. Extract any **business value** mentioned:
+   - Summarize any numbers, scale, or value indicators: budgets, number of users, teams, offices, timelines, or expected impact.
+   - If not explicitly stated, leave a concise best-effort guess or say "Not explicitly stated".
+
+7. Briefly explain your reasoning:
+   - 1–3 sentences on why you classified it that way (especially why it is/isn't an opportunity and why you chose that interaction type).
+   - Be conservative: if the email is mainly informational or administrative, mark it as not an opportunity.
+
+Respond with **JSON only**, no extra text:
+
 {
-  "isDeal": boolean,
-  "confidence": "high|medium|low",
-  "dealName": "string",
+  "isBusinessOpportunity": boolean,
+  "opportunityType": "demo_call" | "intro_call" | "partnership_discussion" | "client_acquisition" | "onboarding" | "renewal_or_expansion" | "support_only" | "none",
   "useCase": "string",
-  "description": "string",
-  "companyName": "string"
-}`;
+  "dealName": "string",
+  "confidence": "high" | "medium" | "low",
+  "businessValue": "string",
+  "reasoning": "why this is or isn't a real opportunity and why this interaction type fits"
+}
+`;
 
     const response = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [{ role: "user", content: prompt }],
-      max_tokens: 300,
+      max_tokens: 400,
       temperature: 0.3
     });
 
     const analysis = JSON.parse(response.choices[0].message.content);
-    return analysis;
+    
+    // Map the new format to the existing deal creation format
+    return {
+      isDeal: analysis.isBusinessOpportunity,
+      confidence: analysis.confidence,
+      dealName: analysis.dealName,
+      useCase: analysis.useCase,
+      description: `${analysis.opportunityType} opportunity: ${analysis.reasoning}\n\nBusiness Value: ${analysis.businessValue}`,
+      companyName: fromEmail.split('@')[1] || 'Unknown Company',
+      opportunityType: analysis.opportunityType,
+      businessValue: analysis.businessValue
+    };
   } catch (error) {
     console.error('🤖 AI analysis error:', error);
     // Fallback to rule-based detection
@@ -144,7 +205,9 @@ Respond in JSON format:
       dealName: subject.replace(/^(Re:|Fwd?:)\s*/i, '').trim() || 'Business Opportunity',
       useCase: extractUseCase(subject, body),
       description: `Deal opportunity from ${fromEmail}`,
-      companyName: fromEmail.split('@')[1] || 'Unknown Company'
+      companyName: fromEmail.split('@')[1] || 'Unknown Company',
+      opportunityType: 'intro_call',
+      businessValue: 'Not explicitly stated'
     };
   }
 }
