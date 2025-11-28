@@ -1,10 +1,16 @@
 const express = require('express');
 const cors = require('cors');
 const { google } = require('googleapis');
+const OpenAI = require('openai');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Initialize OpenAI
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
 // Middleware
 app.use(cors());
@@ -84,6 +90,56 @@ function extractUseCase(subject, body) {
   }
   
   return 'Business Development';
+}
+
+// AI-powered email analysis using OpenAI
+async function analyzeEmailWithAI(subject, body, fromEmail) {
+  try {
+    const prompt = `Analyze this business email and extract deal information:
+
+Subject: ${subject}
+From: ${fromEmail}
+Body: ${body.substring(0, 1000)}
+
+Please provide:
+1. Is this a potential business deal/opportunity? (yes/no)
+2. Confidence level (high/medium/low)
+3. Deal name (max 50 chars)
+4. Use case category
+5. Brief description (max 200 chars)
+6. Contact company name
+
+Respond in JSON format:
+{
+  "isDeal": boolean,
+  "confidence": "high|medium|low",
+  "dealName": "string",
+  "useCase": "string",
+  "description": "string",
+  "companyName": "string"
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 300,
+      temperature: 0.3
+    });
+
+    const analysis = JSON.parse(response.choices[0].message.content);
+    return analysis;
+  } catch (error) {
+    console.error('🤖 AI analysis error:', error);
+    // Fallback to rule-based detection
+    return {
+      isDeal: true,
+      confidence: 'medium',
+      dealName: subject.replace(/^(Re:|Fwd?:)\s*/i, '').trim() || 'Business Opportunity',
+      useCase: extractUseCase(subject, body),
+      description: `Deal opportunity from ${fromEmail}`,
+      companyName: fromEmail.split('@')[1] || 'Unknown Company'
+    };
+  }
 }
 
 // Health check endpoint
@@ -307,25 +363,35 @@ app.post('/api/gmail/sync', async (req, res) => {
           const contactName = fromMatch[1] ? fromMatch[1].trim().replace(/"/g, '') : '';
           const contactEmail = fromMatch[2] || from;
           
-          // Create pending deal based on email content
-          const pendingDeal = {
-            id: `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            messageId: message.id,
-            subject: subject,
-            contactName: contactName,
-            contactEmail: contactEmail,
-            emailBody: emailBody.substring(0, 500), // Truncate for storage
-            detectedAt: new Date().toISOString(),
-            confidence: Math.random() > 0.5 ? 'high' : 'medium',
-            suggestedName: subject.replace(/^(Re:|Fwd?:)\s*/i, '').trim() || 'New Deal Opportunity',
-            suggestedUseCase: extractUseCase(subject, emailBody),
-            suggestedDescription: `Deal opportunity detected from email: "${subject}"\n\nContact: ${contactName} (${contactEmail})\n\nEmail preview: ${emailBody.substring(0, 200)}...`
-          };
+          console.log(`🤖 Analyzing email with AI: "${subject}"`);
           
-          pendingDeals.push(pendingDeal);
-          pendingReview++;
+          // Use AI to analyze the email
+          const aiAnalysis = await analyzeEmailWithAI(subject, emailBody, contactEmail);
           
-          console.log(`📧 Created pending deal: ${pendingDeal.suggestedName}`);
+          if (aiAnalysis.isDeal) {
+            // Create pending deal based on AI analysis
+            const pendingDeal = {
+              id: `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              messageId: message.id,
+              subject: subject,
+              contactName: contactName || aiAnalysis.companyName,
+              contactEmail: contactEmail,
+              emailBody: emailBody.substring(0, 500),
+              detectedAt: new Date().toISOString(),
+              confidence: aiAnalysis.confidence,
+              suggestedName: aiAnalysis.dealName,
+              suggestedUseCase: aiAnalysis.useCase,
+              suggestedDescription: aiAnalysis.description,
+              aiGenerated: true
+            };
+            
+            pendingDeals.push(pendingDeal);
+            pendingReview++;
+            
+            console.log(`📧 AI created pending deal: ${pendingDeal.suggestedName} (${aiAnalysis.confidence} confidence)`);
+          } else {
+            console.log(`📧 AI determined not a deal: ${subject}`);
+          }
         }
         
         emailsProcessed++;
