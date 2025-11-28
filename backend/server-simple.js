@@ -520,11 +520,11 @@ app.post('/api/gmail/approve-deal', async (req, res) => {
       }
     }
     
-    // Get the max sort_order for the Cold stage
+    // Get the max sort_order for the new stage (cold leads start as 'new')
     const { data: maxSortData } = await supabase
       .from('deals')
       .select('sort_order')
-      .eq('stage', 'Cold')
+      .eq('stage', 'new')
       .order('sort_order', { ascending: false })
       .limit(1);
 
@@ -532,12 +532,12 @@ app.post('/api/gmail/approve-deal', async (req, res) => {
       ? (maxSortData[0].sort_order || 0) + 1 
       : 1;
     
-    // Create deal in 'Cold' stage using Supabase
+    // Create deal in 'new' stage using Supabase (new deals start here)
     const dealData = {
       contact_id: contactId,
       name: deal.suggestedName,
       use_case: deal.suggestedUseCase,
-      stage: 'Cold', // Always start in Cold stage
+      stage: 'new', // Gmail-detected deals start in 'new' stage
       signal: 'positive', // Changed from 'Email Detected' to valid signal value
       description: deal.suggestedDescription,
       attachments: null,
@@ -566,14 +566,14 @@ app.post('/api/gmail/approve-deal', async (req, res) => {
       });
     }
     
-    console.log('✅ Created deal from email in Cold stage:', newDeal);
+    console.log('✅ Created deal from email in new stage:', newDeal);
     
     // Remove from pending deals
     pendingDeals.splice(dealIndex, 1);
     
     res.json({
       success: true,
-      message: 'Deal approved and created successfully in Cold stage',
+      message: 'Deal approved and created successfully in new stage',
       dealId: newDeal.id,
       dealData: newDeal
     });
