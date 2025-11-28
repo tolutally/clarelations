@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const { google } = require('googleapis');
 const OpenAI = require('openai');
+const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
 const app = express();
@@ -11,6 +12,12 @@ const PORT = process.env.PORT || 3001;
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
+
+// Initialize Supabase
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL,
+  process.env.VITE_SUPABASE_ANON_KEY
+);
 
 // Middleware
 app.use(cors());
@@ -476,36 +483,90 @@ app.post('/api/gmail/approve-deal', async (req, res) => {
     // Create contact first if needed
     let contactId = null;
     if (deal.contactName && deal.contactEmail) {
-      // For demo, we'll create a simplified contact creation
-      // In production, you'd want to check if contact already exists
-      const contactData = {
-        first_name: deal.contactName.split(' ')[0] || '',
-        last_name: deal.contactName.split(' ').slice(1).join(' ') || '',
-        email: deal.contactEmail,
-        company: deal.contactEmail.split('@')[1] || '',
-        source: 'Gmail Integration'
-      };
+      console.log('Creating contact for approved deal:', deal.contactName, deal.contactEmail);
       
-      console.log('Creating contact for approved deal:', contactData);
-      // contactId = await createContact(contactData); // Would implement this
+      // Check if contact already exists
+      const { data: existingContact } = await supabase
+        .from('contacts')
+        .select('id')
+        .eq('email', deal.contactEmail)
+        .single();
+      
+      if (existingContact) {
+        contactId = existingContact.id;
+        console.log('Using existing contact:', contactId);
+      } else {
+        // Create new contact
+        const contactData = {
+          first_name: deal.contactName.split(' ')[0] || '',
+          last_name: deal.contactName.split(' ').slice(1).join(' ') || '',
+          email: deal.contactEmail,
+          company: deal.contactEmail.split('@')[1] || '',
+          source: 'Gmail Integration'
+        };
+        
+        const { data: newContact, error: contactError } = await supabase
+          .from('contacts')
+          .insert(contactData)
+          .select()
+          .single();
+        
+        if (contactError) {
+          console.error('Error creating contact:', contactError);
+        } else {
+          contactId = newContact.id;
+          console.log('Created new contact:', contactId);
+        }
+      }
     }
     
-    // Create deal in 'Cold' stage
+    // Get the max sort_order for the Cold stage
+    const { data: maxSortData } = await supabase
+      .from('deals')
+      .select('sort_order')
+      .eq('stage', 'Cold')
+      .order('sort_order', { ascending: false })
+      .limit(1);
+
+    const nextSortOrder = maxSortData && maxSortData.length > 0 
+      ? (maxSortData[0].sort_order || 0) + 1 
+      : 1;
+    
+    // Create deal in 'Cold' stage using Supabase
     const dealData = {
       contact_id: contactId,
       name: deal.suggestedName,
       use_case: deal.suggestedUseCase,
       stage: 'Cold', // Always start in Cold stage
-      signal: 'Email Detected',
+      signal: 'positive', // Changed from 'Email Detected' to valid signal value
       description: deal.suggestedDescription,
-      attachments: null
+      attachments: null,
+      sort_order: nextSortOrder,
+      // Store contact details for easy export
+      contact_first_name: deal.contactName.split(' ')[0] || null,
+      contact_last_name: deal.contactName.split(' ').slice(1).join(' ') || null,
+      contact_email: deal.contactEmail,
+      contact_company: deal.contactEmail.split('@')[1] || null,
     };
     
-    // For demo purposes, simulate deal creation
-    // In production, you'd call your actual createDeal function
-    const newDealId = `deal_${Date.now()}`;
+    console.log('Creating deal in Supabase:', dealData);
     
-    console.log('✅ Created deal from email:', dealData);
+    const { data: newDeal, error: dealError } = await supabase
+      .from('deals')
+      .insert(dealData)
+      .select()
+      .single();
+    
+    if (dealError) {
+      console.error('Error creating deal:', dealError);
+      return res.status(500).json({ 
+        success: false,
+        error: 'Failed to create deal in database',
+        message: dealError.message 
+      });
+    }
+    
+    console.log('✅ Created deal from email in Cold stage:', newDeal);
     
     // Remove from pending deals
     pendingDeals.splice(dealIndex, 1);
@@ -513,8 +574,8 @@ app.post('/api/gmail/approve-deal', async (req, res) => {
     res.json({
       success: true,
       message: 'Deal approved and created successfully in Cold stage',
-      dealId: newDealId,
-      dealData: dealData
+      dealId: newDeal.id,
+      dealData: newDeal
     });
   } catch (error) {
     console.error('Error approving deal:', error);
